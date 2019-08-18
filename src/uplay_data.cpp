@@ -304,10 +304,10 @@ UPLAY_EXPORT int UPLAY_INSTALLER_GetChunks(void* buf1)
 	chunks->d1 = 1;
 	chunks->d2 = VirtualAlloc(0, 1000, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 #ifdef _WIN64
-	memcpy(buf1, chunks, 8);
+	memcpy(buf1, &chunks, 8);
 #else
-	memcpy(buf1, chunks, 4);
-#endif // _WIN64
+	memcpy(buf1, &chunks, 4);
+#endif 
 	return 1;
 
 }
