@@ -26,25 +26,25 @@ struct Overmapped
 };
 struct FileOpen
 {
-	HANDLE d1;
+	DWORD d1;
 };
 struct FileOpenTwo
 {
-	int addr1;
-	int addr2;
-	int addr3;
+	DWORD addr1;
+	DWORD addr2;
+	DWORD addr3;
 };
 struct FileRead
 {
-	int addr1;
-	int addr2;
-	int addr3;
+	DWORD addr1;
+	DWORD addr2;
+	DWORD addr3;
 };
 struct FileList
 {
-	ULONG_PTR num;
+	DWORD num;
 	void* bufferstring;
-	ULONG_PTR pointer;
+	DWORD pointer;
 };
 struct MyFileRef
 {
@@ -514,7 +514,7 @@ UPLAY_EXPORT int UPLAY_SAVE_GetSavegames(void* listpointer, void* mystruct)
 	void* SecondPointer = VirtualAlloc(NULL, 0x80000, MEM_COMMIT, PAGE_READWRITE);
 	ULONG_PTR SecondPointerAddr = (ULONG_PTR)SecondPointer;
 	const char* myconstant = AttachDirFile(dir, "*.save");
-	DWORD valueofiles = 0;
+	ULONG_PTR valueofiles = 0;
 	WIN32_FIND_DATAA fd = { 0 };
 	HANDLE firstFile = FindFirstFileA(myconstant, &fd);
 
@@ -527,7 +527,18 @@ UPLAY_EXPORT int UPLAY_SAVE_GetSavegames(void* listpointer, void* mystruct)
 			{
 				void* ThirdPointer = VirtualAlloc(NULL, 0x3000, MEM_COMMIT, PAGE_READWRITE);
 				int filecounternm = 0;
-				sscanf((char*)fd.cFileName, "%d.save", &filecounternm);
+				char bytesdat[270] = { 0 };
+				strcpy(bytesdat, (char*)fd.cFileName);
+				int size = strlen(bytesdat);
+				for (int i = size; i > 0; i--)
+				{
+					if (bytesdat[i] == '.')
+					{
+						memset(&bytesdat[i], 0, size - i);
+						filecounternm = strtoull(bytesdat, NULL, 16);
+						break;
+					}
+				}
 				HANDLE hFoundFile = CreateFileA(AttachDirFile(dir, (char*)fd.cFileName), GENERIC_READ, 1, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 				DWORD FileSize = GetFileSize(hFoundFile, NULL);
 				DWORD val = FileSize - 0x228;
@@ -537,8 +548,8 @@ UPLAY_EXPORT int UPLAY_SAVE_GetSavegames(void* listpointer, void* mystruct)
 				ReadFile(hFoundFile, datar2, 0x200, &bytesreaded, NULL);
 				FileList* flst = (FileList*)ThirdPointer;
 				flst->bufferstring = datar2;
-				flst->num = (ULONG_PTR)filecounternm;
-				flst->pointer = (ULONG_PTR)val;
+				flst->num = (DWORD)filecounternm;
+				flst->pointer = val;
 #ifdef _WIN64
 				memcpy((void*)SecondPointerAddr, &ThirdPointer, 8);
 				SecondPointerAddr += 8;
@@ -575,17 +586,24 @@ UPLAY_EXPORT int UPLAY_SAVE_GetSavegames(void* listpointer, void* mystruct)
 UPLAY_EXPORT int UPLAY_SAVE_Open(int dp1, int dp2, void* buf1, void* buf2)		// Init UPLAY SAVES
 {
 	char file[1024] = { 0 };
-	sprintf(file, "%d.save", dp1);
+	sprintf(file, "0x%x.save", dp1);
 	whichfile = dp1;
 	savefile = AttachDirFile(dir, file);
 	tempbuffer = VirtualAlloc(0, 0x228, MEM_COMMIT, PAGE_READWRITE);
 	MyFileRef ref = { 0 };
 	if (dp2 == 0)
 	{
-		HANDLE fileuplayt = CreateFileA(savefile, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		FileOpen* fp = (FileOpen*)buf1;
 		FileOpenTwo* fp2 = (FileOpenTwo*)buf2;
-		fp->d1 = fileuplayt;
+		HANDLE fileuplayt = CreateFileA(savefile, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (fileuplayt == INVALID_HANDLE_VALUE)
+		{
+			fp2->addr1++;
+			fp2->addr2 = 1;
+			fp2->addr3 = 0;
+			return 0;
+		}
+		fp->d1 = (DWORD)fileuplayt;
 		fp2->addr1++;
 		fp2->addr2 = 1;
 		fp2->addr3 = 0;
@@ -596,12 +614,19 @@ UPLAY_EXPORT int UPLAY_SAVE_Open(int dp1, int dp2, void* buf1, void* buf2)		// I
 	}
 	else
 	{
-		HANDLE fileuplayt = CreateFileA(savefile, SE_GROUP_LOGON_ID, NULL, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		DWORD ld;
-		WriteFile(fileuplayt, tempbuffer, 0x228, &ld, 0);
 		FileOpen* fp = (FileOpen*)buf1;
 		FileOpenTwo* fp2 = (FileOpenTwo*)buf2;
-		fp->d1 = fileuplayt;
+		HANDLE fileuplayt = CreateFileA(savefile, SE_GROUP_LOGON_ID, NULL, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (fileuplayt == INVALID_HANDLE_VALUE)
+		{
+			fp2->addr1++;
+			fp2->addr2 = 1;
+			fp2->addr3 = 0;
+			return 0;
+		}
+		DWORD ld;
+		WriteFile(fileuplayt, tempbuffer, 0x228, &ld, 0);
+		fp->d1 = (DWORD)fileuplayt;
 		fp2->addr1++;
 		fp2->addr2 = 1;
 		fp2->addr3 = 0;
@@ -624,7 +649,14 @@ UPLAY_EXPORT int UPLAY_SAVE_Read(HANDLE hFile, SIZE_T datatoread, long offset, v
 #endif 
 		SetFilePointer(hFile, 0x228 + offset, NULL, NULL);
 		DWORD wrote;
-		ReadFile(hFile, ReadedData, datatoread, bytesreaded, NULL);
+		if (!ReadFile(hFile, ReadedData, datatoread, bytesreaded, NULL))
+		{
+			FileRead* flr = (FileRead*)mystruct;
+			flr->addr1++;
+			flr->addr2 = 1;
+			flr->addr3 = 0;
+			return 0;
+		}
 		FileRead* flr = (FileRead*)mystruct;
 		flr->addr1++;
 		flr->addr2 = 1;
@@ -648,7 +680,14 @@ UPLAY_EXPORT int UPLAY_SAVE_Remove(int fileindex, void* filestruct)
 	sprintf(file, "%d.save", fileindex);
 	savefile = AttachDirFile(dir, file);
 
-	DeleteFileA(savefile);
+	if (!DeleteFileA(savefile))
+	{
+		FileRead* flr = (FileRead*)filestruct;
+		flr->addr1++;
+		flr->addr2 = 1;
+		flr->addr3 = 0;
+		return 0;
+	}
 	FileRead* flr = (FileRead*)filestruct;
 	flr->addr1++;
 	flr->addr2 = 1;
@@ -678,8 +717,15 @@ UPLAY_EXPORT int UPLAY_SAVE_Write(HANDLE hFile, SIZE_T datatowrite, void* buf1, 
 		memcpy(&WriteData, buf1, 4);
 #endif // _WIN64
 		DWORD dat = 0;
-		WriteFile(hFile, WriteData, datatowrite, &dat, NULL);
 		FileRead* flr = (FileRead*)buf2;
+		if (!WriteFile(hFile, WriteData, datatowrite, &dat, NULL))
+		{
+			flr->addr1++;
+			flr->addr2 = 1;
+			flr->addr3 = 0;
+			return 0;
+		}
+		
 		flr->addr1++;
 		flr->addr2 = 1;
 		flr->addr3 = 0;
